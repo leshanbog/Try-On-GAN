@@ -58,14 +58,13 @@ def log_plots_and_fid():
 wandb.login()
 wandb.init(project='try-on-gan');
 
-wandb.config.critic_lr = 2e-4
-wandb.config.generator_lr = 2e-4
+wandb.config.critic_lr = 0.0001
+wandb.config.generator_lr = 0.00015
 wandb.config.critic_steps = 5
 wandb.config.batch_size = 32
 wandb.config.device = 'cuda:0'
 wandb.config.max_epochs = 40
 wandb.config.log_freq = 100
-
 
 
 model = StarGAN().to(wandb.config.device)

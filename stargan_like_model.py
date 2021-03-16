@@ -42,9 +42,27 @@ class Critic(nn.Module):
 
         self.predict_src = nn.Conv2d(2048, 1, kernel_size=3, stride=1, padding=1, bias=False)
 
-    def forward(self, x):
+        self.predict_match  = nn.Sequential(
+            ResidualHiddenLayer(6, 16, 4, 2, 1),
+            ResidualHiddenLayer(16, 32, 4, 2, 1),
+            ResidualHiddenLayer(32, 64, 4, 2, 1),
+            ResidualHiddenLayer(64, 128, 4, 2, 1),
+            ResidualHiddenLayer(128, 256, 4, 2, 1),
+            ResidualHiddenLayer(256, 512, 4, 2, 1),
+            nn.Conv2d(512, 1, 1, 1, 0)
+        )
+
+    def forward(self, x, label):
+        assert x.shape == label.shape and x.shape[1:] == (3, 64, 64)
+        p = self.predict_match(torch.cat((x, label), dim=1))
+        
         x = self.encode(x)
-        return torch.mean(self.predict_src(x), dim=(1,2,3))
+        f = torch.mean(self.predict_src(x), dim=(1,2,3))       
+        
+        return {
+            'f': f,
+            'p': p.squeeze()
+        }
 
     
 class TrueResidualBlock(nn.Module):
@@ -149,14 +167,15 @@ class StarGAN:
         self.optimizers['G'].zero_grad()
 
         fake_img2 = self.G(img1, cc2)
-        out_fake = self.D(fake_img2)
+        out_fake = self.D(fake_img2, cc2)
 
         back_gen_img1 = self.G(fake_img2, cc1)
 
         reconstruction_loss = self.reconstruction_loss(back_gen_img1, img1)
-        wasserstein_loss = -torch.mean(out_fake)
+        wasserstein_loss = -torch.mean(out_fake['f'])
+        match_loss = F.binary_cross_entropy_with_logits(out_fake['p'], torch.ones_like(out_fake['p']))
 
-        loss = 10 * reconstruction_loss + wasserstein_loss
+        loss = 10 * reconstruction_loss + wasserstein_loss + 3 * match_loss
         loss.backward()
 
         self.optimizers['G'].step()
@@ -164,6 +183,7 @@ class StarGAN:
         return {
             'Reconstruction loss': reconstruction_loss.item(),
             'Wasserstein loss': wasserstein_loss.item(),
+            'Match loss': match_loss.item(),
             'Total loss': loss.item(),
         }
 
@@ -173,13 +193,15 @@ class StarGAN:
 
         fake_image = self.G(img1, cc2).detach()
 
-        out_real = self.D(img1)
-        out_fake = self.D(fake_image)
+        out_real = self.D(img1, cc1)
+        out_fake = self.D(fake_image, cc2)
 
-        wasserstein_loss = -torch.mean(out_real) + torch.mean(out_fake)
+        wasserstein_loss = -torch.mean(out_real['f']) + torch.mean(out_fake['f'])
         gradient_penalty = compute_gradient_penalty(self.D, img1.data, fake_image.data, wandb.config.device)
+        match_loss = F.binary_cross_entropy_with_logits(out_real['p'], torch.ones_like(out_real['p'])) + \
+            F.binary_cross_entropy_with_logits(out_fake['p'], torch.zeros_like(out_fake['p']))
 
-        loss = wasserstein_loss + 10 * gradient_penalty
+        loss = wasserstein_loss + 10 * gradient_penalty + match_loss
 
         loss.backward()
 
@@ -189,6 +211,7 @@ class StarGAN:
         return {
             'Wasserstein loss': wasserstein_loss.item(),
             'Gradient Penalty loss': gradient_penalty.item(),
+            'Match loss': match_loss.item(),
             'Total loss': loss.item(),
         }
 
