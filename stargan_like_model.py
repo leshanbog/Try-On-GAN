@@ -241,3 +241,12 @@ class StarGAN:
             'D_opt': self.optimizers['D'].state_dict(),
             'critic_step': self.critic_step,
         }
+
+    def load_state_dict(self, state):
+        self.G.load_state_dict(state['G'])
+        self.D.load_state_dict(state['D'])
+
+        self.optimizers['G'].load_state_dict(state['G_opt'])
+        self.optimizers['D'].load_state_dict(state['D_opt'])
+
+        self.critic_step = state['critic_step']

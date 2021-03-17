@@ -1,3 +1,8 @@
+import os
+
+print(f'\n\ntaskset -p --cpu-list 40-50 {os.getpid()}\n\n')
+_ = input('Done?')
+
 import torch
 import torchvision
 import random
@@ -56,7 +61,7 @@ def log_plots_and_fid():
 
 
 wandb.login()
-wandb.init(project='try-on-gan');
+wandb.init(project='try-on-gan', id='x9wdsygj', resume=True);
 
 wandb.config.critic_lr = 0.0001
 wandb.config.generator_lr = 0.00015
@@ -68,6 +73,10 @@ wandb.config.log_freq = 100
 
 
 model = StarGAN().to(wandb.config.device)
+
+state = torch.load('stargan_state.pt')
+model.load_state_dict(state)
+
 model.train()
 wandb.watch(model.G)
 wandb.watch(model.D)
@@ -80,7 +89,6 @@ transforms = torchvision.transforms.Compose([
 ])
 
 crop = torchvision.transforms.RandomResizedCrop((64, 64), scale=[0.8, 1.0], ratio=[0.9, 1.1])
-
 
 augmented_transforms = torchvision.transforms.Compose([
     torchvision.transforms.Lambda(lambda x: crop(x) if random.random() < 0.75 else x),
@@ -116,9 +124,12 @@ val_dataloader = torch.utils.data.DataLoader(
     num_workers=8)
 
 
-step = 0
+step = state['step']
 device = wandb.config.device
-start_epoch = 0
+start_epoch = state['epoch']
+epoch = start_epoch
+
+log_plots_and_fid()
 
 for epoch in range(start_epoch, wandb.config.max_epochs):
     model.train()
