@@ -73,6 +73,10 @@ class DeepFashionDataset(Dataset):
             if random.random() > 0.5:
                 person_image = TF.hflip(person_image)
                 mask = TF.hflip(mask)
+        else:
+            # Resize
+            person_image = TF.resize(person_image, size=(64, 64))
+            mask = TF.resize(mask, size=(64, 64))
 
         person_image = TF.normalize(TF.to_tensor(person_image), [0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
         
