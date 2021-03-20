@@ -56,17 +56,17 @@ def log_plots_and_fid():
     fig, axs = plt.subplots(rows, 3, figsize=(15, 20))
 
     for i in range(rows):
-        img1 = img1[i].unsqueeze(0)
-        mask1 = mask1[i].unsqueeze(0)
-        cc2 = cc2[i].unsqueeze(0)
+        im1 = img1[i].unsqueeze(0)
+        mas1 = mask1[i].unsqueeze(0)
+        c2 = cc2[i].unsqueeze(0)
 
-        fake_img = model.G(img1, mask1, cc2).detach()
+        fake_img = model.G(im1, mas1, c2).detach()
 
-        axs[i, 0].imshow((img.squeeze().permute(1, 2, 0).cpu() + 1) / 2)
+        axs[i, 0].imshow((im1.squeeze().permute(1, 2, 0).cpu() + 1) / 2)
         axs[i, 0].set_title('This person')
         axs[i, 0].axis('off')
 
-        axs[i, 1].imshow((label.squeeze().permute(1, 2, 0).cpu() + 1) / 2)
+        axs[i, 1].imshow((c2.squeeze().permute(1, 2, 0).cpu() + 1) / 2)
         axs[i, 1].set_title('in that clothing')
         axs[i, 1].axis('off')
 
