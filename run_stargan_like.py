@@ -1,8 +1,11 @@
 import os
+os.environ["OPENBLAS_NUM_THREADS"] = "2"
 
-print(f'\n\ntaskset -p --cpu-list 40-50 {os.getpid()}\n\n')
-_ = input('Done?')
+print(f'\n\ntaskset -p --cpu-list 30-50 {os.getpid()}\n\n')
+_ = input('Done? ')
 
+
+import argparse
 import torch
 import torchvision
 import random
@@ -15,8 +18,25 @@ from calculate_fid import calculate_fid
 from stargan_like_model import StarGAN
 from custom_datasets import DeepFashionDataset
 
-
 import wandb
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--max-epochs', default=40, type=int)
+    parser.add_argument('--critic-lr', default=0.0001, type=float)
+    parser.add_argument('--generator-lr', default=0.00015, type=float)
+    parser.add_argument('--critic-steps', default=4, type=int)
+    parser.add_argument('--device', default='cuda:0', type=str)
+    parser.add_argument('--batch-size', default=32, type=int)
+    parser.add_argument('--dataset', default='DeepFashion', choices=('DeepFashion', 'VITON'))
+    parser.add_argument('--log-freq', default=100, type=int)
+    parser.add_argument('--resume', default='', type=str)  # path to checkpoint if we resume training
+    parser.add_argument('--run-id', default='', type=str)  # wandb run ID if we resume training
+
+    return parser.parse_args()
+
 
 @torch.no_grad()
 def log_plots_and_fid():
@@ -24,22 +44,23 @@ def log_plots_and_fid():
     fid = calculate_fid(val_dataloader, model.G)
 
     np.random.seed(34)
-    img1, cc1, cc2 = next(iter(val_dataloader))
+    img1, mask1, cc1, cc2 = next(iter(val_dataloader))
 
     perm = np.random.permutation(val_dataloader.batch_size)
 
     img1 = img1[perm].to(device)
-    cc1 = cc1[perm].to(device)
+    mask1 = mask1[perm].to(device)
     cc2 = cc2[perm].to(device)
 
     rows = 7
     fig, axs = plt.subplots(rows, 3, figsize=(15, 20))
 
     for i in range(rows):
-        img = img1[i].unsqueeze(0)
-        label = cc2[i].unsqueeze(0)
+        img1 = img1[i].unsqueeze(0)
+        mask1 = mask1[i].unsqueeze(0)
+        cc2 = cc2[i].unsqueeze(0)
 
-        fake_img = model.generate(img, label).detach()
+        fake_img = model.G(img1, mask1, cc2).detach()
 
         axs[i, 0].imshow((img.squeeze().permute(1, 2, 0).cpu() + 1) / 2)
         axs[i, 0].set_title('This person')
@@ -59,99 +80,111 @@ def log_plots_and_fid():
         'Image translation examples': wandb.Image(fig),
     }, step=step)
 
+    
+if __name__ == '__main__':
+    args = parse_args()
+    
+    wandb.login()
+    
+    if args.run_id:
+        wandb.init(project='try-on-gan', id=args.run_id, resume=True)
+    else:
+        wandb.init(project='try-on-gan')
 
-wandb.login()
-wandb.init(project='try-on-gan', id='x9wdsygj', resume=True);
+    for p, v in vars(args).items():
+        setattr(wandb.config, p, v)
 
-wandb.config.critic_lr = 0.0001
-wandb.config.generator_lr = 0.00015
-wandb.config.critic_steps = 5
-wandb.config.batch_size = 32
-wandb.config.device = 'cuda:0'
-wandb.config.max_epochs = 40
-wandb.config.log_freq = 100
+    model = StarGAN().to(wandb.config.device)
 
+    transforms = torchvision.transforms.Compose([
+        torchvision.transforms.Resize((64, 64)),
+        torchvision.transforms.ToTensor(),
+        torchvision.transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+    ])
 
-model = StarGAN().to(wandb.config.device)
+    crop = torchvision.transforms.RandomResizedCrop((64, 64), scale=[0.8, 1.0], ratio=[0.9, 1.1])
 
-state = torch.load('stargan_state.pt')
-model.load_state_dict(state)
+    augmented_transforms = torchvision.transforms.Compose([
+        torchvision.transforms.Lambda(lambda x: crop(x) if random.random() < 0.75 else x),
+        torchvision.transforms.Resize((64, 64)),
+        torchvision.transforms.RandomHorizontalFlip(0.5),
+        torchvision.transforms.ToTensor(),
+        torchvision.transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+    ])
 
-model.train()
-wandb.watch(model.G)
-wandb.watch(model.D)
+    print('Loading datasets...')
 
+    if args.dataset == 'DeepFashion':
+        train_dataset = DeepFashionDataset('train', 
+                                        do_photo_augmentations=True, 
+                                        cloth_transform=augmented_transforms)
 
-transforms = torchvision.transforms.Compose([
-    torchvision.transforms.Resize((64, 64)),
-    torchvision.transforms.ToTensor(),
-    torchvision.transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
-])
-
-crop = torchvision.transforms.RandomResizedCrop((64, 64), scale=[0.8, 1.0], ratio=[0.9, 1.1])
-
-augmented_transforms = torchvision.transforms.Compose([
-    torchvision.transforms.Lambda(lambda x: crop(x) if random.random() < 0.75 else x),
-    torchvision.transforms.Resize((64, 64)),
-    torchvision.transforms.RandomHorizontalFlip(0.5),
-    torchvision.transforms.ToTensor(),
-    torchvision.transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
-])
-
-train_dataset = DeepFashionDataset('train', 
-                                   photo_transform=augmented_transforms, 
-                                   cloth_transform=augmented_transforms)
-
-val_dataset = DeepFashionDataset('validation', 
-                                 photo_transform=transforms, 
-                                 cloth_transform=transforms)
+        val_dataset = DeepFashionDataset('validation', 
+                                        do_photo_augmentations=False, 
+                                        cloth_transform=transforms)
+    elif args.dataset == 'VITON':
+        raise NotImplementedError
 
 
-train_dataloader = torch.utils.data.DataLoader(
-    dataset=train_dataset,
-    batch_size=wandb.config.batch_size,
-    shuffle=True,
-    drop_last=True,
-    pin_memory=True,
-    num_workers=8)
+    print('Making dataloaders...')
 
-val_dataloader = torch.utils.data.DataLoader(
-    dataset=val_dataset,
-    batch_size=128,
-    shuffle=False,
-    drop_last=True,
-    pin_memory=True,
-    num_workers=8)
+    train_dataloader = torch.utils.data.DataLoader(
+        dataset=train_dataset,
+        batch_size=wandb.config.batch_size,
+        shuffle=True,
+        drop_last=True,
+        pin_memory=True,
+        num_workers=8)
 
+    val_dataloader = torch.utils.data.DataLoader(
+        dataset=val_dataset,
+        batch_size=128,
+        shuffle=False,
+        drop_last=True,
+        pin_memory=True,
+        num_workers=8)
 
-step = state['step']
-device = wandb.config.device
-start_epoch = state['epoch']
-epoch = start_epoch
+    device = wandb.config.device
 
-log_plots_and_fid()
+    if args.resume:
+        state = torch.load(args.resume)
+        model.load_state_dict(state)
+        step = state['step']
+        epoch = state['epoch']
 
-for epoch in range(start_epoch, wandb.config.max_epochs):
-    model.train()
+        log_plots_and_fid()
+    else:
+        step = 0
+        epoch = 0
 
-    for img1, cc1, cc2 in tqdm.tqdm(train_dataloader, leave=False, total=len(train_dataloader)):
-        img1 = img1.to(device)
-        cc1 = cc1.to(device)
-        cc2 = cc2.to(device)
+    wandb.watch(model.G)
+    wandb.watch(model.D)
 
-        d_loss = model.trainD(img1, cc1, cc2)
-        g_loss = model.trainG(img1, cc1, cc2)
+    print('Training')
 
-        if step % wandb.config.log_freq == 0:
-            wandb.log({
-                'loss': {'Critic': d_loss, 'Generator': g_loss}
-            }, step=step)
+    while epoch < wandb.config.max_epochs:
+        model.train()
 
-        step += 1
+        for img1, mask1, cc1, cc2 in tqdm.tqdm(train_dataloader, leave=False, total=len(train_dataloader)):
+            img1 = img1.to(device)
+            mask1 = mask1.to(device)
+            cc1 = cc1.to(device)
+            cc2 = cc2.to(device)
 
-    state = model.get_state()
-    state['epoch'] = epoch + 1
-    state['step'] = step
-    torch.save(state, './stargan_state.pt')
+            d_loss = model.trainD(img1, mask1, cc1, cc2)
+            g_loss = model.trainG(img1, mask1, cc1, cc2)
 
-    log_plots_and_fid()
+            if step % wandb.config.log_freq == 0:
+                wandb.log({
+                    'loss': {'Critic': d_loss, 'Generator': g_loss}
+                }, step=step)
+
+            step += 1
+
+        state = model.get_state()
+        state['epoch'] = epoch + 1
+        state['step'] = step
+        torch.save(state, './stargan_state.pt')
+
+        log_plots_and_fid()
+        epoch += 1
