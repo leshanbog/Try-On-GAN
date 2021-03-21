@@ -80,11 +80,10 @@ def calculate_activation_statistics(dataloader, model):
     index = 0
     for img1, mask1, cc1, cc2 in tqdm(dataloader, leave=False, total=len(dataloader)):
         img1 = img1.to(device)
-        mask1 = mask1.to(device)
         cc2 = cc2.to(device)
         bs = img1.shape[0]
 
-        out = model(img1, mask1, cc2)
+        out = model(img1, cc2)['out']
 
         assert out.shape == img1.shape
 

@@ -105,7 +105,7 @@ class Generator(nn.Module):
         super().__init__()
 
         self.down = nn.Sequential(
-            nn.Conv2d(7, 64, kernel_size=(7, 7), stride=(1, 1), padding=(3, 3), bias=False),
+            nn.Conv2d(6, 64, kernel_size=(7, 7), stride=(1, 1), padding=(3, 3), bias=False),
             nn.InstanceNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=False),
             nn.LeakyReLU(negative_slope=0.2),
             
@@ -130,19 +130,27 @@ class Generator(nn.Module):
         self.up = nn.Sequential(
             GeneratorUpscaleBlock(256, 128, 4, 2),
             GeneratorUpscaleBlock(128, 64, 4, 1),
-            nn.Conv2d(64, 3, kernel_size=(8, 8), stride=(1, 1), padding=(3, 3), bias=False),
+            nn.Conv2d(64, 4, kernel_size=(8, 8), stride=(1, 1), padding=(3, 3), bias=False),
         )
 
-    def forward(self, img1, mask1, cc2):
+    def forward(self, img1, cc2):
         assert img1.shape == cc2.shape and img1.shape[1:] == (3, 64, 64)
 
-        x = torch.cat((img1, mask1, cc2), dim=1)
+        x = torch.cat((img1, cc2), dim=1)
         x = self.down(x)
         x = self.bottleneck(x)
         x = self.up(x)
-        x = torch.tanh(x)
 
-        return x * mask1.to(dtype=torch.float) + img1 * (1. - mask1.to(dtype=torch.float))
+        change = x[:, :3, :, :]
+        mask = x[:, 3, :, :].unsqueeze(1)
+
+        change = torch.tanh(change)
+        mask = torch.sigmoid(mask)
+
+        return {
+            'out': change * mask + change * (1. - mask),
+            'mask': mask
+        }
 
 
 class StarGAN:
@@ -165,16 +173,25 @@ class StarGAN:
 
         self.optimizers['G'].zero_grad()
 
-        fake_img2 = self.G(img1, mask1, cc2)
+        g_out = self.G(img1, cc2)
+
+        fake_img2 = g_out['out']
+        fake_mask1 = g_out['mask']
+
         out_fake = self.D(fake_img2, cc2)
 
-        back_gen_img1 = self.G(fake_img2, mask1, cc1)
+        back_g_out = self.G(fake_img2, cc1)
+        back_gen_img1 = back_g_out['out']
+        back_mask1 = back_g_out['mask']
 
         reconstruction_loss = self.reconstruction_loss(back_gen_img1, img1)
         wasserstein_loss = -torch.mean(out_fake['f'])
         match_loss = F.binary_cross_entropy_with_logits(out_fake['p'], torch.ones_like(out_fake['p']))
 
-        loss = 5 * reconstruction_loss + wasserstein_loss + 5 * match_loss
+        correct_mask_loss = F.binary_cross_entropy(fake_mask1, mask1.to(dtype=torch.float)) + \
+            F.binary_cross_entropy(back_mask1, mask1.to(dtype=torch.float))
+
+        loss = 6 * reconstruction_loss + wasserstein_loss + 6 * match_loss + correct_mask_loss
         loss.backward()
 
         self.optimizers['G'].step()
@@ -183,6 +200,7 @@ class StarGAN:
             'Reconstruction loss': reconstruction_loss.item(),
             'Wasserstein loss': wasserstein_loss.item(),
             'Match loss': match_loss.item(),
+            'Correct mask loss': correct_mask_loss.item(),
             'Total loss': loss.item(),
         }
 
@@ -190,36 +208,41 @@ class StarGAN:
     def trainD(self, img1, mask1, cc1, cc2):
         self.optimizers['D'].zero_grad()
 
-        fake_image = self.G(img1, mask1, cc2).detach()
+        fake_image = self.G(img1, cc2)['out'].detach()
 
         out_real = self.D(img1, cc1)
         out_fake = self.D(fake_image, cc2)
-        out_negative_probs = self.D(img1, cc2)['p']
 
         wasserstein_loss = -torch.mean(out_real['f']) + torch.mean(out_fake['f'])
         gradient_penalty = compute_gradient_penalty(self.D, img1.data, fake_image.data, wandb.config.device)
-        
-        real_match_loss = F.binary_cross_entropy_with_logits(out_real['p'], torch.ones_like(out_real['p']))
-        fake_match_loss = F.binary_cross_entropy_with_logits(out_fake['p'], torch.zeros_like(out_fake['p']))
-        neg_match_loss = F.binary_cross_entropy_with_logits(out_negative_probs, torch.zeros_like(out_negative_probs))
 
-        loss = wasserstein_loss + 10 * gradient_penalty + \
-            (real_match_loss + fake_match_loss + neg_match_loss)
+        loss = wasserstein_loss + 10 * gradient_penalty
 
+        result = {
+            'Wasserstein loss': wasserstein_loss.item(),
+            'Gradient Penalty loss': gradient_penalty.item(),    
+        }
+
+        if self.critic_step % wandb.config.critic_steps == 0:
+            out_negative_probs = self.D(img1, cc2)['p']
+            neg_match_loss = F.binary_cross_entropy_with_logits(out_negative_probs, torch.zeros_like(out_negative_probs))
+
+            real_match_loss = F.binary_cross_entropy_with_logits(out_real['p'], torch.ones_like(out_real['p']))
+            fake_match_loss = F.binary_cross_entropy_with_logits(out_fake['p'], torch.zeros_like(out_fake['p']))
+
+            loss = loss + (real_match_loss + fake_match_loss + neg_match_loss) / 3
+
+            result['Fake Match loss']  = fake_match_loss.item()
+            result['Real Match loss'] = real_match_loss.item()
+            result['Negative Match loss'] = neg_match_loss.item()
+            result['Total loss'] = loss.item()
+    
         loss.backward()
 
         self.optimizers['D'].step()
         self.critic_step += 1
 
-        return {
-            'Wasserstein loss': wasserstein_loss.item(),
-            'Gradient Penalty loss': gradient_penalty.item(),
-            'Fake Match loss': fake_match_loss.item(),
-            'Real Match loss': real_match_loss.item(),
-            'Negative Match loss': neg_match_loss.item(),
-            'Total loss': loss.item(),
-        }
-
+        return result
 
     def generate(self, image, label):
         return self.G(image, label)

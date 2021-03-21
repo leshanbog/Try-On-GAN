@@ -31,7 +31,7 @@ def parse_args():
     parser.add_argument('--device', default='cuda:0', type=str)
     parser.add_argument('--batch-size', default=32, type=int)
     parser.add_argument('--dataset', default='DeepFashion', choices=('DeepFashion', 'VITON'))
-    parser.add_argument('--log-freq', default=100, type=int)
+    parser.add_argument('--log-freq', default=200, type=int)
     parser.add_argument('--resume', default='', type=str)  # path to checkpoint if we resume training
     parser.add_argument('--run-id', default='', type=str)  # wandb run ID if we resume training
 
@@ -57,10 +57,9 @@ def log_plots_and_fid():
 
     for i in range(rows):
         im1 = img1[i].unsqueeze(0)
-        mas1 = mask1[i].unsqueeze(0)
         c2 = cc2[i].unsqueeze(0)
 
-        fake_img = model.G(im1, mas1, c2).detach()
+        fake_img = model.G(im1, c2)['out'].detach()
 
         axs[i, 0].imshow((im1.squeeze().permute(1, 2, 0).cpu() + 1) / 2)
         axs[i, 0].set_title('This person')
@@ -157,8 +156,8 @@ if __name__ == '__main__':
         step = 0
         epoch = 0
 
-    wandb.watch(model.G)
-    wandb.watch(model.D)
+    wandb.watch(model.G, 'all')
+    wandb.watch(model.D, 'all')
 
     print('Training')
 
@@ -184,7 +183,9 @@ if __name__ == '__main__':
         state = model.get_state()
         state['epoch'] = epoch + 1
         state['step'] = step
-        torch.save(state, './stargan_state.pt')
+        
+        suf = wandb.run.name
+        torch.save(state, f'trained_models/stargan_state-{suf}.pt')
 
         log_plots_and_fid()
         epoch += 1
