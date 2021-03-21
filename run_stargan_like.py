@@ -24,14 +24,15 @@ import wandb
 def parse_args():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--max-epochs', default=40, type=int)
+    parser.add_argument('--gt-given-mask', default=True, type=bool)  # train with ground truth mask
+    parser.add_argument('--max-epochs', default=70, type=int)
     parser.add_argument('--critic-lr', default=0.0001, type=float)
     parser.add_argument('--generator-lr', default=0.00015, type=float)
-    parser.add_argument('--critic-steps', default=4, type=int)
+    parser.add_argument('--critic-steps', default=3, type=int)
     parser.add_argument('--device', default='cuda:0', type=str)
     parser.add_argument('--batch-size', default=32, type=int)
     parser.add_argument('--dataset', default='DeepFashion', choices=('DeepFashion', 'VITON'))
-    parser.add_argument('--log-freq', default=200, type=int)
+    parser.add_argument('--log-freq', default=300, type=int)
     parser.add_argument('--resume', default='', type=str)  # path to checkpoint if we resume training
     parser.add_argument('--run-id', default='', type=str)  # wandb run ID if we resume training
 
@@ -59,7 +60,7 @@ def log_plots_and_fid():
         im1 = img1[i].unsqueeze(0)
         c2 = cc2[i].unsqueeze(0)
 
-        fake_img = model.G(im1, c2)['out'].detach()
+        fake_img = model.G(im1, c2, mask1)['out'].detach()
 
         axs[i, 0].imshow((im1.squeeze().permute(1, 2, 0).cpu() + 1) / 2)
         axs[i, 0].set_title('This person')
@@ -72,6 +73,9 @@ def log_plots_and_fid():
         axs[i, 2].imshow((fake_img.squeeze().permute(1, 2, 0).cpu() + 1) / 2)
         axs[i, 2].set_title('will look like this')
         axs[i, 2].axis('off')
+
+    if not wandb.config.gt_given_mask:
+        print('TODO: draw predicted masks')
 
     wandb.log({
         'FID': fid,
@@ -94,6 +98,8 @@ if __name__ == '__main__':
         setattr(wandb.config, p, v)
 
     model = StarGAN().to(wandb.config.device)
+    if wandb.config.gt_given_mask:
+        print('Training with GT mask given')
 
     transforms = torchvision.transforms.Compose([
         torchvision.transforms.Resize((64, 64)),

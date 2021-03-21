@@ -99,8 +99,8 @@ class GeneratorUpscaleBlock(nn.Module):
     def forward(self, x):
         return self.act(self.norm(self.conv(self.up(x))))
 
-  
-class Generator(nn.Module):
+
+class GeneratorCore(nn.Module):
     def __init__(self):
         super().__init__()
 
@@ -130,16 +130,28 @@ class Generator(nn.Module):
         self.up = nn.Sequential(
             GeneratorUpscaleBlock(256, 128, 4, 2),
             GeneratorUpscaleBlock(128, 64, 4, 1),
-            nn.Conv2d(64, 4, kernel_size=(8, 8), stride=(1, 1), padding=(3, 3), bias=False),
         )
 
-    def forward(self, img1, cc2):
-        assert img1.shape == cc2.shape and img1.shape[1:] == (3, 64, 64)
-
-        x = torch.cat((img1, cc2), dim=1)
+    def forward(self, x):
         x = self.down(x)
         x = self.bottleneck(x)
         x = self.up(x)
+        return x
+
+
+class Generator(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+        self.core = GeneratorCore()
+        self.last = nn.Conv2d(64, 4, kernel_size=(8, 8), stride=(1, 1), padding=(3, 3), bias=False)
+
+    def forward(self, img1, cc2, mask1=None):
+        assert img1.shape == cc2.shape and img1.shape[1:] == (3, 64, 64)
+
+        x = torch.cat((img1, cc2), dim=1)
+        x = self.core(x)
+        x = self.last(x)
 
         change = x[:, :3, :, :]
         mask = x[:, 3, :, :].unsqueeze(1)
@@ -152,10 +164,32 @@ class Generator(nn.Module):
             'mask': mask
         }
 
+class GeneratorGivenMask(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+        self.core = GeneratorCore()
+        self.last = nn.Conv2d(64, 3, kernel_size=(8, 8), stride=(1, 1), padding=(3, 3), bias=False)
+
+    def forward(self, img1, cc2, mask1):
+        assert img1.shape == cc2.shape and img1.shape[1:] == (3, 64, 64)
+
+        x = torch.cat((img1, cc2), dim=1)
+        change = self.last(self.core(x))
+
+        return {
+            'out': change * mask1.to(dtype=torch.float) + img1 * (1. - mask1.to(dtype=torch.float)),
+            'mask': mask1.to(dtype=torch.float)
+        }
+
 
 class StarGAN:
     def __init__(self):
-        self.G = Generator()
+        if wandb.config.gt_given_mask:
+            self.G = GeneratorGivenMask()
+        else:
+            self.G = Generator()
+
         self.D = Critic()
 
         self.optimizers = {
@@ -173,14 +207,14 @@ class StarGAN:
 
         self.optimizers['G'].zero_grad()
 
-        g_out = self.G(img1, cc2)
+        g_out = self.G(img1, cc2, mask1)
 
         fake_img2 = g_out['out']
         fake_mask1 = g_out['mask']
 
         out_fake = self.D(fake_img2, cc2)
 
-        back_g_out = self.G(fake_img2, cc1)
+        back_g_out = self.G(fake_img2, cc1, mask1)
         back_gen_img1 = back_g_out['out']
         back_mask1 = back_g_out['mask']
 
@@ -191,7 +225,9 @@ class StarGAN:
         correct_mask_loss = F.binary_cross_entropy(fake_mask1, mask1.to(dtype=torch.float)) + \
             F.binary_cross_entropy(back_mask1, mask1.to(dtype=torch.float))
 
-        loss = 6 * reconstruction_loss + wasserstein_loss + 6 * match_loss + correct_mask_loss
+        loss = 6 * reconstruction_loss + wasserstein_loss + 6 * match_loss + \
+            correct_mask_loss * int(not wandb.config.gt_given_mask)
+
         loss.backward()
 
         self.optimizers['G'].step()
@@ -208,7 +244,7 @@ class StarGAN:
     def trainD(self, img1, mask1, cc1, cc2):
         self.optimizers['D'].zero_grad()
 
-        fake_image = self.G(img1, cc2)['out'].detach()
+        fake_image = self.G(img1, cc2, mask1)['out'].detach()
 
         out_real = self.D(img1, cc1)
         out_fake = self.D(fake_image, cc2)
