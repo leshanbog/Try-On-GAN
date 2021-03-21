@@ -173,13 +173,15 @@ class GeneratorGivenMask(nn.Module):
 
     def forward(self, img1, cc2, mask1):
         assert img1.shape == cc2.shape and img1.shape[1:] == (3, 64, 64)
+        assert len(mask1.shape) == 4 and mask1.shape[1:] == (1, 64, 64)
 
         x = torch.cat((img1, cc2), dim=1)
         change = self.last(self.core(x))
+        mask = mask1.to(dtype=torch.float)
 
         return {
-            'out': change * mask1.to(dtype=torch.float) + img1 * (1. - mask1.to(dtype=torch.float)),
-            'mask': mask1.to(dtype=torch.float)
+            'out': change * mask + img1 * (1. - mask),
+            'mask': mask
         }
 
 

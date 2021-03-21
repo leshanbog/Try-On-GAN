@@ -59,8 +59,9 @@ def log_plots_and_fid():
     for i in range(rows):
         im1 = img1[i].unsqueeze(0)
         c2 = cc2[i].unsqueeze(0)
+        mas1 = mask1[i].unsqueeze(0)
 
-        fake_img = model.G(im1, c2, mask1)['out'].detach()
+        fake_img = model.G(im1, c2, mas1)['out'].detach()
 
         axs[i, 0].imshow((im1.squeeze().permute(1, 2, 0).cpu() + 1) / 2)
         axs[i, 0].set_title('This person')
