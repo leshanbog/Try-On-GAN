@@ -2,7 +2,7 @@ import torch
 
 
 def compute_gradient_penalty(critic, real_samples, fake_samples, device):
-    assert real_samples.shape == fake_samples.shape and fake_samples.shape[1:] == (3, 64, 64)
+    assert real_samples.shape == fake_samples.shape
     # Random weight term for interpolation between real and fake samples
     alpha = torch.rand((real_samples.size(0), 1, 1, 1), device=device)
     # Get random interpolation between real and fake samples

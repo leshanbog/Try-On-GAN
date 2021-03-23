@@ -52,7 +52,7 @@ class Critic(nn.Module):
         )
 
     def forward(self, img, cc):
-        assert img.shape == cc.shape and img.shape[1:] == (3, 64, 64)
+        assert img.shape == cc.shape
         p = self.predict_match(torch.cat((img, cc), dim=1))
         
         img = self.encode(img)
@@ -147,7 +147,7 @@ class Generator(nn.Module):
         self.last = nn.Conv2d(64, 4, kernel_size=(8, 8), stride=(1, 1), padding=(3, 3), bias=False)
 
     def forward(self, img1, cc2, mask1=None):
-        assert img1.shape == cc2.shape and img1.shape[1:] == (3, 64, 64)
+        assert img1.shape == cc2.shape
 
         x = torch.cat((img1, cc2), dim=1)
         x = self.core(x)
@@ -172,8 +172,8 @@ class GeneratorGivenMask(nn.Module):
         self.last = nn.Conv2d(64, 3, kernel_size=(8, 8), stride=(1, 1), padding=(3, 3), bias=False)
 
     def forward(self, img1, cc2, mask1):
-        assert img1.shape == cc2.shape and img1.shape[1:] == (3, 64, 64)
-        assert len(mask1.shape) == 4 and mask1.shape[1:] == (1, 64, 64)
+        assert img1.shape == cc2.shape
+        assert len(mask1.shape) == 4
 
         x = torch.cat((img1, cc2), dim=1)
         change = self.last(self.core(x))

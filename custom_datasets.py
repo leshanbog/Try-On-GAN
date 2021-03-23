@@ -15,9 +15,10 @@ TARGET_CATEGORIES = [1, 2, 3, 4, 5, 6]  # mutually exclusive
 
 
 class DeepFashionDataset(Dataset):
-    def __init__(self, split, do_photo_augmentations=False, cloth_transform=None):
+    def __init__(self, split, image_shape, do_photo_augmentations=False, cloth_transform=None):
         assert isinstance(do_photo_augmentations, bool)
 
+        self.image_shape = image_shape
         self.path = f'../datasets/DeepFashion/{split}'
         
         self.do_photo_augmentations = do_photo_augmentations
@@ -62,12 +63,12 @@ class DeepFashionDataset(Dataset):
             if random.random() < 0.75:
                 # Random crop
                 i, j, h, w = transforms.RandomResizedCrop.get_params(person_image, scale=[0.8, 1.0], ratio=[0.9, 1.1])
-                person_image = TF.resized_crop(person_image, i, j, h, w, size=(64, 64))
-                mask = TF.resized_crop(mask, i, j, h, w, size=(64, 64))
+                person_image = TF.resized_crop(person_image, i, j, h, w, size=self.image_shape)
+                mask = TF.resized_crop(mask, i, j, h, w, size=self.image_shape)
 
             # Resize
-            person_image = TF.resize(person_image, size=(64, 64))
-            mask = TF.resize(mask, size=(64, 64))
+            person_image = TF.resize(person_image, size=self.image_shape)
+            mask = TF.resize(mask, size=self.image_shape)
 
             # Random horizontal flipping
             if random.random() > 0.5:
@@ -75,13 +76,13 @@ class DeepFashionDataset(Dataset):
                 mask = TF.hflip(mask)
         else:
             # Resize
-            person_image = TF.resize(person_image, size=(64, 64))
-            mask = TF.resize(mask, size=(64, 64))
+            person_image = TF.resize(person_image, size=self.image_shape)
+            mask = TF.resize(mask, size=self.image_shape)
 
         person_image = TF.normalize(TF.to_tensor(person_image), [0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
         
         rand_index = np.random.choice(len(self.cat_to_idx[cat]))
-            
+
         return person_image, \
             mask, \
             self._get_centred_cloth(idx), \

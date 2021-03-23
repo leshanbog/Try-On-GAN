@@ -1,7 +1,7 @@
 import os
 os.environ["OPENBLAS_NUM_THREADS"] = "2"
 
-print(f'\n\ntaskset -p --cpu-list 30-50 {os.getpid()}\n\n')
+print(f'\n\ntaskset -p --cpu-list 10-30 {os.getpid()}\n\n')
 _ = input('Done? ')
 
 
@@ -31,6 +31,7 @@ def parse_args():
     parser.add_argument('--critic-steps', default=3, type=int)
     parser.add_argument('--device', default='cuda:0', type=str)
     parser.add_argument('--batch-size', default=32, type=int)
+    parser.add_argument('--image-size', default=64, type=int)
     parser.add_argument('--dataset', default='DeepFashion', choices=('DeepFashion', 'VITON'))
     parser.add_argument('--log-freq', default=300, type=int)
     parser.add_argument('--resume', default='', type=str)  # path to checkpoint if we resume training
@@ -102,17 +103,19 @@ if __name__ == '__main__':
     if wandb.config.gt_given_mask:
         print('Training with GT mask given')
 
+    image_shape = (args.image_size, args.image_size)
+
     transforms = torchvision.transforms.Compose([
-        torchvision.transforms.Resize((64, 64)),
+        torchvision.transforms.Resize(image_shape),
         torchvision.transforms.ToTensor(),
         torchvision.transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
     ])
 
-    crop = torchvision.transforms.RandomResizedCrop((64, 64), scale=[0.8, 1.0], ratio=[0.9, 1.1])
+    crop = torchvision.transforms.RandomResizedCrop(image_shape, scale=[0.8, 1.0], ratio=[0.9, 1.1])
 
     augmented_transforms = torchvision.transforms.Compose([
         torchvision.transforms.Lambda(lambda x: crop(x) if random.random() < 0.75 else x),
-        torchvision.transforms.Resize((64, 64)),
+        torchvision.transforms.Resize(image_shape),
         torchvision.transforms.RandomHorizontalFlip(0.5),
         torchvision.transforms.ToTensor(),
         torchvision.transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
@@ -121,13 +124,19 @@ if __name__ == '__main__':
     print('Loading datasets...')
 
     if args.dataset == 'DeepFashion':
-        train_dataset = DeepFashionDataset('train', 
-                                        do_photo_augmentations=True, 
-                                        cloth_transform=augmented_transforms)
+        train_dataset = DeepFashionDataset(
+            'train', 
+            image_shape,
+            do_photo_augmentations=True, 
+            cloth_transform=augmented_transforms
+        )
 
-        val_dataset = DeepFashionDataset('validation', 
-                                        do_photo_augmentations=False, 
-                                        cloth_transform=transforms)
+        val_dataset = DeepFashionDataset(
+            'validation',
+            image_shape,
+            do_photo_augmentations=False, 
+            cloth_transform=transforms
+        )
     elif args.dataset == 'VITON':
         raise NotImplementedError
 
