@@ -84,10 +84,10 @@ for annot_name in tqdm.tqdm(os.listdir(f'{path}/annos'), total=total):
 
             try:
                 mask = get_mask_from_polygon(v['segmentation'], img_path)
-                
+
                 if mask.sum() / np.prod(mask.shape) < 0.02:
                     continue
-                
+
                 cc = get_centered_cloth(img_path, mask, v['bounding_box'])
 
                 np.save(f'{path}/segmentation_masks/{obj_id}_mask.npy', mask)

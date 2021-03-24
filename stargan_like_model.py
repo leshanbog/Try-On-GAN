@@ -4,6 +4,7 @@ import wandb
 from torch.nn import functional as F
 
 from utils import compute_gradient_penalty
+from cool_optimizers import AdamInverseSqrtWithWarmup
 
 
 class ResidualHiddenLayer(nn.Module):
@@ -34,21 +35,15 @@ class Critic(nn.Module):
             ResidualHiddenLayer(3, 64, 4, 2, 1),
             ResidualHiddenLayer(64, 128, 4, 2, 1),
             ResidualHiddenLayer(128, 256, 4, 2, 1),
-            ResidualHiddenLayer(256, 512, 4, 2, 1),
-            ResidualHiddenLayer(512, 1024, 4, 2, 1),
-            ResidualHiddenLayer(1024, 2048, 1, 1, 0),
         )
 
-        self.predict_src = nn.Conv2d(2048, 1, kernel_size=3, stride=1, padding=1, bias=False)
+        self.predict_src = nn.Conv2d(256, 1, kernel_size=3, stride=1, padding=1, bias=False)
 
         self.predict_match = nn.Sequential(
             ResidualHiddenLayer(6, 16, 4, 2, 1),
             ResidualHiddenLayer(16, 32, 4, 2, 1),
             ResidualHiddenLayer(32, 64, 4, 2, 1),
-            ResidualHiddenLayer(64, 128, 4, 2, 1),
-            ResidualHiddenLayer(128, 256, 4, 2, 1),
-            ResidualHiddenLayer(256, 512, 4, 2, 1),
-            nn.Conv2d(512, 1, 1, 1, 0)
+            nn.Conv2d(64, 1, 1, 1, 0)
         )
 
     def forward(self, img, cc):
@@ -196,9 +191,14 @@ class StarGAN:
 
         self.D = Critic()
 
+        if wandb.config.optimizer == 'Adam':
+            opt_cls = torch.optim.Adam
+        else:
+            opt_cls = AdamInverseSqrtWithWarmup
+        
         self.optimizers = {
-            'G': torch.optim.Adam(self.G.parameters(), wandb.config.generator_lr, betas=(0.5, 0.999), weight_decay=1e-4),
-            'D': torch.optim.Adam(self.D.parameters(), wandb.config.critic_lr, betas=(0.5, 0.999), weight_decay=1e-4),
+            'G': opt_cls(self.G.parameters(), wandb.config.generator_lr, betas=(0.5, 0.999), weight_decay=1e-4),
+            'D': opt_cls(self.D.parameters(), wandb.config.critic_lr, betas=(0.5, 0.999), weight_decay=1e-4),
         }
 
         self.reconstruction_loss = nn.L1Loss()
