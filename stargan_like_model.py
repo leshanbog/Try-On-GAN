@@ -4,8 +4,8 @@ import wandb
 from torch.nn import functional as F
 
 from utils import compute_gradient_penalty
-    
-    
+
+
 class ResidualHiddenLayer(nn.Module):
     def __init__(self, n_inp, n_otpt, k, s, p):
         super().__init__()
@@ -24,7 +24,7 @@ class ResidualHiddenLayer(nn.Module):
         out += self.expand(residual)
 
         return self.act(out)
-    
+
 
 class Critic(nn.Module):
     def __init__(self):
@@ -41,7 +41,7 @@ class Critic(nn.Module):
 
         self.predict_src = nn.Conv2d(2048, 1, kernel_size=3, stride=1, padding=1, bias=False)
 
-        self.predict_match  = nn.Sequential(
+        self.predict_match = nn.Sequential(
             ResidualHiddenLayer(6, 16, 4, 2, 1),
             ResidualHiddenLayer(16, 32, 4, 2, 1),
             ResidualHiddenLayer(32, 64, 4, 2, 1),
@@ -54,16 +54,16 @@ class Critic(nn.Module):
     def forward(self, img, cc):
         assert img.shape == cc.shape
         p = self.predict_match(torch.cat((img, cc), dim=1))
-        
+
         img = self.encode(img)
-        f = torch.mean(self.predict_src(img), dim=(1,2,3))       
+        f = torch.mean(self.predict_src(img), dim=(1, 2, 3))  
 
         return {
             'f': f,
             'p': p.squeeze()
         }
 
-    
+
 class TrueResidualBlock(nn.Module):
     def __init__(self):
         super().__init__()
@@ -108,11 +108,11 @@ class GeneratorCore(nn.Module):
             nn.Conv2d(6, 64, kernel_size=(7, 7), stride=(1, 1), padding=(3, 3), bias=False),
             nn.InstanceNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=False),
             nn.LeakyReLU(negative_slope=0.2),
-            
+
             nn.Conv2d(64, 128, kernel_size=(4, 4), stride=(2, 2), padding=(1, 1), bias=False),
             nn.InstanceNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=False),
             nn.LeakyReLU(negative_slope=0.2),
-            
+
             nn.Conv2d(128, 256, kernel_size=(4, 4), stride=(2, 2), padding=(1, 1), bias=False),
             nn.InstanceNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=False),
             nn.LeakyReLU(negative_slope=0.2)
@@ -204,7 +204,6 @@ class StarGAN:
         self.reconstruction_loss = nn.L1Loss()
         self.critic_step = 0
 
-
     def trainG(self, img1, mask1, cc1, cc2):
         if self.critic_step % wandb.config.critic_steps != 1:
             return
@@ -244,7 +243,6 @@ class StarGAN:
             'Total loss': loss.item(),
         }
 
-
     def trainD(self, img1, mask1, cc1, cc2):
         self.optimizers['D'].zero_grad()
 
@@ -272,11 +270,11 @@ class StarGAN:
 
             loss = loss + (real_match_loss + fake_match_loss + neg_match_loss) / 3
 
-            result['Fake Match loss']  = fake_match_loss.item()
+            result['Fake Match loss'] = fake_match_loss.item()
             result['Real Match loss'] = real_match_loss.item()
             result['Negative Match loss'] = neg_match_loss.item()
             result['Total loss'] = loss.item()
-    
+
         loss.backward()
 
         self.optimizers['D'].step()
@@ -318,3 +316,127 @@ class StarGAN:
         self.optimizers['D'].load_state_dict(state['D_opt'])
 
         self.critic_step = state['critic_step']
+
+
+# ==================== NEW MODELS ===============================
+
+class Conv2dBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=None,
+                 transponsed_conv=False, activation=nn.LeakyReLU(), norm_strategy=None):
+        super().__init__()
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = padding or (kernel_size - 1) // 2
+
+        conv = nn.Conv2d if transponsed_conv else nn.ConvTranspose2d
+        self.conv = conv(
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride=stride,
+            padding=self.padding,
+            bias=False
+        )
+        self.norm_strategy = norm_strategy
+        self.activation = activation
+
+    def _norm(self, x):
+        if self.norm_strategy is None:
+            return x
+        assert self.norm_strategy in {'batch', 'instance'}, f"Unsupported norm_strategy: {self.norm_strategy}"
+
+        if self.norm_strategy == 'batch':
+            norm = nn.BatchNorm2d(self.conv.out_channels)
+
+        elif self.norm_strategy == 'instance':
+            norm = nn.InstanceNorm2d(self.conv.out_channels, affine=True, track_running_stats=True)
+
+        return norm(x)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.activation(self._norm(x))
+        return x
+
+
+class ResidualBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(ResidualBlock, self).__init__()
+        self.block = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.InstanceNorm2d(out_channels, affine=True, track_running_stats=True),
+            nn.LeakyReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.InstanceNorm2d(out_channels, affine=True, track_running_stats=True))
+
+    def forward(self, x):
+        return x + self.block(x)
+
+
+class CriticV2(nn.Module):
+    def __init__(self, img_size=128, conv_dim=64, n_domain_labels=5, n_downsamples=6):
+        super().__init__()
+        layers = []
+        in_channels, out_channels = 6, 64
+
+        for _ in range(n_downsamples):
+            layers.append(Conv2dBlock(in_channels, out_channels, kernel_size=4, stride=2, padding=1))
+            in_channels, out_channels = out_channels, out_channels * 2
+
+        self.backbone = nn.Sequential(*layers)
+        # Adversarial classifier
+        self.adv = nn.Conv2d(in_channels, 1, 3, padding=1, bias=False)
+        # Match classifier
+        kernel_size = img_size // 2 ** n_downsamples
+
+        self.predict_match = nn.Conv2d(in_channels, 1, kernel_size, bias=False)
+
+    def forward(self, img, cc):
+        assert img.shape == cc.shape
+        backbone = self.backbone(torch.cat((img, cc), dim=1))
+
+        p = self.predict_match(backbone)
+        f = torch.mean(backbone)
+
+        return {
+            'f': f,
+            'p': p.squeeze()
+        }
+
+
+class GeneratorV2(nn.Module):
+    def __init__(self, in_channels=6, bottleneck_blocks=6):
+        # Downsample
+        out_channels = 64
+        self.downsample_blocks = nn.Sequential(
+            Conv2dBlock(in_channels, out_channels, kernel_size=7, padding=3, norm_strategy='instance'),
+            Conv2dBlock(out_channels, out_channels * 2, kernel_size=4, stride=2, padding=1, norm_strategy='instance'),
+            Conv2dBlock(out_channels * 2, out_channels * 4, kernel_size=4, stride=2, padding=1, norm_strategy='instance'),
+        )
+
+        # Bottleneck
+        out_channels *= 4
+        self.bottleneck_layers = nn.Sequential(*[
+            ResidualBlock(out_channels, out_channels) for _ in range(bottleneck_blocks)
+        ])
+
+        # Upsample
+        self.upsample_blocks = nn.Sequential(
+            Conv2dBlock(out_channels, out_channels // 2, kernel_size=4, stride=2, padding=1, transponsed_conv=True, norm_strategy='instance'),
+            Conv2dBlock(out_channels // 2, out_channels // 4, kernel_size=4, stride=2, padding=1, transponsed_conv=True, norm_strategy='instance'),
+            nn.Conv2d(out_channels // 4, 4, kernel_size=7, stride=1, padding=3, bias=False),
+        )
+
+    def forward(self, img1, cc2):
+        assert img1.shape == cc2.shape
+
+        x = torch.cat((img1, cc2), dim=1)
+        x = self.upsample_blocks(self.bottleneck_layers(self.downsample_blocks(x)))
+
+        fake_img1 = torch.tanh(x[:, :3, :, :])
+        mask = torch.sigmoid(x[:, 3:, :, :])
+
+        return {
+            'out': fake_img1 * mask + img1 * (1. - mask),
+            'mask': mask
+        }
