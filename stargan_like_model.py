@@ -160,7 +160,7 @@ class Generator(nn.Module):
         mask = torch.sigmoid(mask)
 
         return {
-            'out': change * mask + change * (1. - mask),
+            'out': change * mask + img1 * (1. - mask),
             'mask': mask
         }
 
