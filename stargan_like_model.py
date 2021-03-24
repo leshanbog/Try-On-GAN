@@ -394,7 +394,7 @@ class CriticV2(nn.Module):
         backbone = self.backbone(torch.cat((img, cc), dim=1))
 
         p = self.predict_match(backbone)
-        f = torch.mean(backbone)
+        f = torch.mean(self.adv(backbone))
 
         return {
             'f': f,
