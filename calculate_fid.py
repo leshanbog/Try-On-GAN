@@ -91,8 +91,8 @@ def calculate_activation_statistics(dataloader, model):
         a1 = classifier.features(img1).detach().cpu().numpy().reshape(bs, -1)
         a2 = classifier.features(out).detach().cpu().numpy().reshape(bs, -1)
 
-        p1[index: index + bs] = a1
-        p2[index: index + bs] = a2
+        p1[index: index + bs] = a1[:, :activations_size]
+        p2[index: index + bs] = a2[:, :activations_size]
 
         index += dataloader.batch_size
 

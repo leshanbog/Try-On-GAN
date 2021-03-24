@@ -189,8 +189,10 @@ class StarGAN:
     def __init__(self):
         if wandb.config.gt_given_mask:
             self.G = GeneratorGivenMask()
+            print('Generator will use GT mask')
         else:
             self.G = Generator()
+            print('Generator will predict mask')
 
         self.D = Critic()
 
@@ -227,8 +229,8 @@ class StarGAN:
         correct_mask_loss = F.binary_cross_entropy(fake_mask1, mask1.to(dtype=torch.float)) + \
             F.binary_cross_entropy(back_mask1, mask1.to(dtype=torch.float))
 
-        loss = 6 * reconstruction_loss + wasserstein_loss + 6 * match_loss + \
-            correct_mask_loss * int(not wandb.config.gt_given_mask)
+        loss = 5 * reconstruction_loss + 2 * wasserstein_loss + 7 * match_loss + \
+            9 * correct_mask_loss * int(not wandb.config.gt_given_mask)
 
         loss.backward()
 

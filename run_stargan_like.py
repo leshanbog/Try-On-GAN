@@ -24,7 +24,7 @@ import wandb
 def parse_args():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--gt-given-mask', default=True, type=bool)  # train with ground truth mask
+    parser.add_argument('--gt-given-mask', default=1, type=int)  # train with ground truth mask
     parser.add_argument('--max-epochs', default=70, type=int)
     parser.add_argument('--critic-lr', default=0.0001, type=float)
     parser.add_argument('--generator-lr', default=0.00015, type=float)
@@ -76,14 +76,33 @@ def log_plots_and_fid():
         axs[i, 2].set_title('will look like this')
         axs[i, 2].axis('off')
 
-    if not wandb.config.gt_given_mask:
-        print('TODO: draw predicted masks')
-
-    wandb.log({
+    result_log = {
         'FID': fid,
         'Epoch': epoch + 1,
         'Image translation examples': wandb.Image(fig),
-    }, step=step)
+    }
+
+    if not wandb.config.gt_given_mask:
+        fig, axs = plt.subplots(rows, 2, figsize=(15, 20))
+
+        for i in range(rows):
+            im1 = img1[i].unsqueeze(0)
+            c2 = cc2[i].unsqueeze(0)
+            mas1 = mask1[i].unsqueeze(0)
+
+            fake_mask = model.G(im1, c2, mas1)['mask'].detach()
+
+            axs[i, 0].imshow((im1.squeeze().permute(1, 2, 0).cpu() + 1) / 2)
+            axs[i, 0].set_title('Person photo')
+            axs[i, 0].axis('off')
+
+            axs[i, 1].imshow(fake_mask.squeeze().cpu())
+            axs[i, 1].set_title('Predicted mask')
+            axs[i, 1].axis('off')
+
+        result_log['Predicted masks'] = wandb.Image(fig)
+
+    wandb.log(result_log, step=step)
 
     
 if __name__ == '__main__':
