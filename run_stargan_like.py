@@ -118,6 +118,8 @@ if __name__ == '__main__':
         wandb.init(project='try-on-gan')
 
     for p, v in vars(args).items():
+        if p in ('resume', 'run_id'):
+            continue
         setattr(wandb.config, p, v)
 
     model = StarGAN().to(wandb.config.device)
