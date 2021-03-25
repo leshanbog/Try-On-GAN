@@ -1,7 +1,7 @@
 import os
 os.environ["OPENBLAS_NUM_THREADS"] = "2"
 
-print(f'\n\ntaskset -p --cpu-list 10-30 {os.getpid()}\n\n')
+print(f'\n\ntaskset -p --cpu-list 30-45 {os.getpid()}\n\n')
 _ = input('Done? ')
 
 

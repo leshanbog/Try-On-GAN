@@ -228,8 +228,8 @@ class StarGAN:
         correct_mask_loss = F.binary_cross_entropy(fake_mask1, mask1.to(dtype=torch.float)) + \
             F.binary_cross_entropy(back_mask1, mask1.to(dtype=torch.float))
 
-        loss = 5 * reconstruction_loss + 2 * wasserstein_loss + 7 * match_loss + \
-            9 * correct_mask_loss * int(not wandb.config.gt_given_mask)
+        loss = 8 * reconstruction_loss + 2 * wasserstein_loss + 6 * match_loss + \
+            4 * correct_mask_loss * int(not wandb.config.gt_given_mask)
 
         loss.backward()
 
@@ -263,9 +263,9 @@ class StarGAN:
 
         if self.critic_step % wandb.config.critic_steps == 0:
             out_negative_probs = self.D(img1, cc2)['p']
-            neg_match_loss = F.binary_cross_entropy_with_logits(out_negative_probs, torch.zeros_like(out_negative_probs))
+            neg_match_loss = F.binary_cross_entropy_with_logits(out_negative_probs, torch.ones_like(out_negative_probs) * 0.03)
 
-            real_match_loss = F.binary_cross_entropy_with_logits(out_real['p'], torch.ones_like(out_real['p']))
+            real_match_loss = F.binary_cross_entropy_with_logits(out_real['p'], torch.ones_like(out_real['p']) * 0.97)
             fake_match_loss = F.binary_cross_entropy_with_logits(out_fake['p'], torch.zeros_like(out_fake['p']))
 
             loss = loss + (real_match_loss + fake_match_loss + neg_match_loss) / 3
