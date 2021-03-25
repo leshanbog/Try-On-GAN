@@ -34,7 +34,6 @@ def parse_args():
     parser.add_argument('--batch-size', default=32, type=int)
     parser.add_argument('--image-size', default=64, type=int)
     parser.add_argument('--optimizer', default='Adam', type=str, choices=('Adam', 'TopAdam'))
-    parser.add_argument('--dataset', default='DeepFashion', choices=('DeepFashion', 'VITON'))
     parser.add_argument('--log-freq', default=300, type=int)
     parser.add_argument('--resume', default='', type=str)  # path to checkpoint if we resume training
     parser.add_argument('--run-id', default='', type=str)  # wandb run ID if we resume training
@@ -146,22 +145,19 @@ if __name__ == '__main__':
 
     print('Loading datasets...')
 
-    if args.dataset == 'DeepFashion':
-        train_dataset = DeepFashionDataset(
-            'train', 
-            image_shape,
-            do_photo_augmentations=True, 
-            cloth_transform=augmented_transforms
-        )
+    train_dataset = DeepFashionDataset(
+        'train', 
+        image_shape,
+        do_photo_augmentations=True, 
+        cloth_transform=augmented_transforms
+    )
 
-        val_dataset = DeepFashionDataset(
-            'validation',
-            image_shape,
-            do_photo_augmentations=False, 
-            cloth_transform=transforms
-        )
-    elif args.dataset == 'VITON':
-        raise NotImplementedError
+    val_dataset = DeepFashionDataset(
+        'validation',
+        image_shape,
+        do_photo_augmentations=False, 
+        cloth_transform=transforms
+    )
 
 
     print('Making dataloaders...')
