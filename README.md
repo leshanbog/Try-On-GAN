@@ -9,8 +9,8 @@ Dataset: DeepFashion2 https://github.com/switchablenorms/DeepFashion2
 
 ## Some results:
 
-[Very good](some results/res1.png)
+[Very good](some\ results/res1.png)
 
-[Impressive](some results/res2.png)
+[Impressive](some\ results/res2.png)
 
-[Amazing](some results/res3.png)
+[Amazing](some\ results/res3.png)
